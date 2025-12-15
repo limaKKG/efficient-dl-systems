@@ -1,8 +1,0 @@
-torch
-torchvision
-einops
-gdown
-pandas
-tqdm
-Pillow
-
