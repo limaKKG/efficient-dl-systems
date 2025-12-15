@@ -50,7 +50,7 @@ def train():
     train_loader = get_train_data()
 
     num_epochs = 5
-    scaler = ManualLossScaler(init_scale=1024.0, dynamic=True)
+    scaler = ManualLossScaler(init_scale=1024.0, dynamic=False)
     for epoch in range(0, num_epochs):
         train_epoch(train_loader, model, criterion, optimizer, device=device, scaler=scaler)
 

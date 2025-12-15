@@ -1,0 +1,30 @@
+job:
+  time_limit: 48h0m0s
+  flavor: h100-1x
+  region: ix-m5-sm11
+  image: python:3.10
+  generate_name: task_3_nsys
+  work_dir: /work
+
+  args:
+    - sh
+    - -c
+    - |
+      pip3 install -qr requirements.txt &&\
+      nsys profile --env-var CUDA_VISIBLE_DEVICES="0" -o trace_nsys python3 run_epoch.py
+
+  input:
+    - type: files
+      src: ./
+      dst: "/work/"
+      mask: "requirements.txt"
+
+    - type: files
+      src: ./
+      dst: "/work/"
+      mask: "*.py"
+
+  output:
+    - type: files
+      src: "/work/trace_nsys.nsys-rep"
+

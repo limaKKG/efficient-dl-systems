@@ -57,3 +57,6 @@ def train():
 
 if __name__ == "__main__":
     train()
+
+#статический скейлинг https://mlcore.tcsgroup.io/projects/rnd-customer-service-platform/jobs/train_task_1-463qxc/observability?item=job 
+# динамический скейлинг https://mlcore.tcsgroup.io/projects/rnd-customer-service-platform/jobs/train_task_1-ov2uun/observability?item=job

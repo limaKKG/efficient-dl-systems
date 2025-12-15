@@ -1,15 +1,19 @@
 from typing import Dict, Iterable, List, Optional, Tuple
+
 import torch
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import Sampler, IterableDataset
 from transformers import AutoTokenizer
 import random
 
+
 MAX_LENGTH = 640
 TOKENIZER = AutoTokenizer.from_pretrained("bert-base-uncased")
 PAD_ID = TOKENIZER.pad_token_id or 0
 
+
 def _read_train_lines(data_path: str) -> List[str]:
+    # Читаем обе training-части; пропускаем пустые строки
     parts = ["train-00000-of-00002.txt", "train-00001-of-00002.txt"]
     lines: List[str] = []
     for fname in parts:
@@ -24,9 +28,15 @@ def _read_train_lines(data_path: str) -> List[str]:
 def _tokenize_line(text: str, max_length: int) -> List[int]:
     tokens = TOKENIZER.tokenize(text)
     token_ids = TOKENIZER.convert_tokens_to_ids(tokens)
+    # усечём до max_length
     return token_ids[:max_length]
-    
+
+
 class BrainDataset(Dataset):
+    """
+    BRAIN: заранее паддим до фиксированного max_length.
+    """
+
     def __init__(self, data_path: str, max_length: int = MAX_LENGTH):
         self.max_length = max_length
         self.samples: List[torch.Tensor] = []
@@ -43,10 +53,14 @@ class BrainDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         x = self.samples[idx]
-        return x, self.max_length 
+        return x, self.max_length  # длина после паддинга
 
 
 class BigBrainDataset(Dataset):
+    """
+    BIG BRAIN: без паддинга, только усечение.
+    """
+
     def __init__(self, data_path: str, max_length: int = MAX_LENGTH):
         lines = _read_train_lines(data_path)
         self.samples: List[List[int]] = [
@@ -62,6 +76,10 @@ class BigBrainDataset(Dataset):
 
 
 class UltraBigBrainDataset(Dataset):
+    """
+    ULTRA BIG BRAIN: то же, что BigBrain, но храним длины для batch sampler.
+    """
+
     def __init__(self, data_path: str, max_length: int = MAX_LENGTH, n_bins: int = 1):
         lines = _read_train_lines(data_path)
         self.samples: List[List[int]] = [
@@ -79,6 +97,11 @@ class UltraBigBrainDataset(Dataset):
 
 
 class UltraDuperBigBrainDataset(IterableDataset):
+    """
+    ULTRA DUPER BIG BRAIN: пакуем все последовательности в поток чанков длины max_length,
+    строим attention mask, блокирующий перетекание внимания между разными исходными последовательностями.
+    """
+
     def __init__(self, data_path: str, max_length: int = MAX_LENGTH):
         self.max_length = max_length
         self.lines = _read_train_lines(data_path)
@@ -95,7 +118,9 @@ class UltraDuperBigBrainDataset(IterableDataset):
             L = len(current_tokens)
             pad_len = self.max_length - L
             tokens = current_tokens + [PAD_ID] * pad_len
-            segments = current_segments + [-1] * pad_len
+            segments = current_segments + [-1] * pad_len  # -1 для падов
+
+            # causal mask + блокировка меж-сегментного внимания
             attn_mask = torch.zeros(self.max_length, self.max_length)
             attn_mask += torch.triu(torch.ones(self.max_length, self.max_length) * float("-inf"), diagonal=1)
             for i in range(self.max_length):
@@ -112,6 +137,7 @@ class UltraDuperBigBrainDataset(IterableDataset):
             ids = _tokenize_line(line, self.max_length)
             if not ids:
                 continue
+            # если последовательность слишком длинная, усечём и сразу выдадим
             while ids:
                 space = self.max_length - len(current_tokens)
                 take = min(space, len(ids))
@@ -124,24 +150,23 @@ class UltraDuperBigBrainDataset(IterableDataset):
                         yield chunk
             seg_id += 1
 
+        # финальный неполный чанк
         chunk = emit_chunk()
         if chunk:
             yield chunk
 
+
 def collate_fn(
-    batch: list[tuple[str, torch.Tensor]], max_length: Optional[int] = MAX_LENGTH
-) -> tuple[torch.Tensor, torch.Tensor]:
+    batch: list[Tuple[torch.Tensor, int]], max_length: Optional[int] = MAX_LENGTH
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Pad each sequence of the incoming sequences list
-    :param batch: a list of the objects received from the dataset by __getitem__
-    :param max_length: maximum sequence length to pad to (for "Brain" approach only)
-    :return: tuple of padded sequences and corresponding training targets
+    Паддинг до max_length (если задан) или до максимальной длины в батче.
+    Возвращает input_ids, attention_mask (1 для токенов, 0 для падов), targets.
     """
     if max_length is None:
         max_len = min(max(len(x[0]) for x in batch), MAX_LENGTH)
     else:
         max_len = max_length
-    max_len = max(1, max_len)  
 
     input_ids = torch.full((len(batch), max_len), PAD_ID, dtype=torch.long)
     attention_mask = torch.zeros((len(batch), max_len), dtype=torch.long)
@@ -155,7 +180,11 @@ def collate_fn(
     return input_ids, attention_mask, targets
 
 
-class UltraBigBrainBatchSampler(Sampler):
+class UltraBigBrainBatchSampler(Sampler[List[int]]):
+    """
+    Бьём датасет на корзины по длинам с шагом k, чтобы max-min <= k.
+    """
+
     def __init__(self, dataset_lengths: List[int], batch_size: int, k: int = 10):
         self.batch_size = batch_size
         self.k = k
@@ -163,12 +192,15 @@ class UltraBigBrainBatchSampler(Sampler):
         for idx, length in enumerate(dataset_lengths):
             bin_id = length // k
             self.bins.setdefault(bin_id, []).append(idx)
+
+        # предвычислим число батчей для __len__
         self._num_batches = sum((len(v) + batch_size - 1) // batch_size for v in self.bins.values())
 
     def __len__(self) -> int:
         return self._num_batches
 
     def __iter__(self):
+        # перемешиваем корзины и содержимое корзин
         bin_ids = list(self.bins.keys())
         random.shuffle(bin_ids)
         for b in bin_ids:

@@ -121,8 +121,8 @@ def run_epoch(data_mode: DataMode, batch_size: int = 8, k: int = 10, device: str
                 attention_mask = attention_mask.to(device)
                 targets = targets.to(device)
                 seq_len = input_ids.size(1)
-                if seq_len == 0:
-                    continue
+        if seq_len == 0:
+            continue
                 attn_mask = _causal_mask(seq_len).to(device)
                 key_padding_mask = attention_mask == 0
                 model(input_ids, attn_mask, key_padding_mask)
@@ -144,8 +144,6 @@ def run_epoch(data_mode: DataMode, batch_size: int = 8, k: int = 10, device: str
                 input_ids = input_ids.to(device)
                 attention_mask = attention_mask.to(device)
                 seq_len = input_ids.size(1)
-                if seq_len == 0:
-                    continue
                 attn_mask = _causal_mask(seq_len).to(device)
                 key_padding_mask = attention_mask == 0
                 model(input_ids, attn_mask, key_padding_mask)

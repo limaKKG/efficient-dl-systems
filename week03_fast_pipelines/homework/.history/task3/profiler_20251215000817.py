@@ -9,10 +9,12 @@ class Profile:
     def __init__(self, model, name="model", schedule=None):
         self.name_map = self._build_name_map(model, name)
         self.events = []
+        # schedule: dict with keys wait, warmup, active
         self.schedule = schedule or {"wait": 0, "warmup": 0, "active": 1}
         self.global_step = 0
         self.current_phase = "wait"
         self.start_time_ns = None
+
         self.fwd_start = {}
         self.bwd_start = {}
         self.handles = []

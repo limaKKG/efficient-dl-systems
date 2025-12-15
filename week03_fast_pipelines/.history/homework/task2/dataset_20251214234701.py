@@ -141,7 +141,6 @@ def collate_fn(
         max_len = min(max(len(x[0]) for x in batch), MAX_LENGTH)
     else:
         max_len = max_length
-    max_len = max(1, max_len)  
 
     input_ids = torch.full((len(batch), max_len), PAD_ID, dtype=torch.long)
     attention_mask = torch.zeros((len(batch), max_len), dtype=torch.long)

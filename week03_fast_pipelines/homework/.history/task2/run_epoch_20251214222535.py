@@ -1,7 +1,6 @@
 from enum import Enum
 from typing import List
-import json
-import time
+
 import torch
 import time
 import statistics
@@ -48,11 +47,14 @@ def get_gpt2_model() -> torch.nn.Module:
             self.lm_head = torch.nn.Linear(d_model, vocab_size)
 
         def forward(self, input_ids: torch.Tensor, attn_mask: torch.Tensor, key_padding_mask: torch.Tensor):
-            x = self.embed(input_ids)  
-            x = x.transpose(0, 1) 
+            # input_ids: (batch, seq)
+            x = self.embed(input_ids)  # (batch, seq, d_model)
+            x = x.transpose(0, 1)  # (seq, batch, d_model)
             x = self.pos_enc(x)
-            tgt_mask = attn_mask 
+            tgt_mask = attn_mask  # (seq, seq) or (batch, seq, seq)
             if tgt_mask.dim() == 3:
+                # TransformerDecoder ожидает (tgt_len, tgt_len) или (batch*nhead, tgt_len, tgt_len)
+                # здесь применяем усреднение по батчу: допускаем, что маска одинакова для всех
                 tgt_mask = tgt_mask[0]
             memory = torch.zeros(1, x.size(1), x.size(2), device=x.device)
             out = self.decoder(
@@ -63,6 +65,7 @@ def get_gpt2_model() -> torch.nn.Module:
             )
             out = self.lm_head(out)
             return out
+
     return GPT2Like()
 
 
@@ -83,12 +86,14 @@ def _make_loader(data_mode: DataMode, batch_size: int, k: int = 10):
         return loader
     if data_mode == DataMode.ULTRA_DUPER_BIG_BRAIN:
         ds = UltraDuperBigBrainDataset(data_path)
-        loader = DataLoader(ds, batch_size=1) 
+        loader = DataLoader(ds, batch_size=1)  # батчим по 1, т.к. маска зависит от сегментов
         return loader
+    raise ValueError("Unknown data mode")
 
 
 def _causal_mask(seq_len: int) -> torch.Tensor:
     return generate_square_subsequent_mask(seq_len)
+
 
 def _collect_stats(times: list[float]) -> dict:
     return {
@@ -103,6 +108,8 @@ def run_epoch(data_mode: DataMode, batch_size: int = 8, k: int = 10, device: str
     device = torch.device(device if torch.cuda.is_available() else "cpu")
     model = get_gpt2_model().to(device)
     loader = _make_loader(data_mode, batch_size=batch_size, k=k)
+
+    # прогрев
     warmup_steps = 5
     with torch.no_grad():
         for i, batch in enumerate(loader):
@@ -121,8 +128,6 @@ def run_epoch(data_mode: DataMode, batch_size: int = 8, k: int = 10, device: str
                 attention_mask = attention_mask.to(device)
                 targets = targets.to(device)
                 seq_len = input_ids.size(1)
-                if seq_len == 0:
-                    continue
                 attn_mask = _causal_mask(seq_len).to(device)
                 key_padding_mask = attention_mask == 0
                 model(input_ids, attn_mask, key_padding_mask)
@@ -144,8 +149,6 @@ def run_epoch(data_mode: DataMode, batch_size: int = 8, k: int = 10, device: str
                 input_ids = input_ids.to(device)
                 attention_mask = attention_mask.to(device)
                 seq_len = input_ids.size(1)
-                if seq_len == 0:
-                    continue
                 attn_mask = _causal_mask(seq_len).to(device)
                 key_padding_mask = attention_mask == 0
                 model(input_ids, attn_mask, key_padding_mask)

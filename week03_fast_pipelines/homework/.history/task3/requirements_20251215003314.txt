@@ -1,0 +1,9 @@
+torch
+torchvision
+einops
+pandas
+tqdm
+Pillow
+boto3
+botocore
+

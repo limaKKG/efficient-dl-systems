@@ -5,6 +5,8 @@ from unet import Unet
 from dataset import get_train_data
 from scaler import ManualLossScaler
 from typing import Optional
+import boto3 
+import os 
 
 def train_epoch(
     train_loader: torch.utils.data.DataLoader,
@@ -28,20 +30,29 @@ def train_epoch(
             loss.backward()
             optimizer.step()
         else:
-            scaled_loss = scaler.scale_loss(loss).backward()
-            found_inf = scaler._has_inf_or_nan(model)
-            if not found_inf:
+            loss = scaler.scale_loss(loss).backward()
+
+            if not scaler._has_inf_or_nan(model):
                 scaler.unscale_(optimizer)
                 optimizer.step()
-            scaler.update(found_inf)
+            scaler.update(scaler._has_inf_or_nan(model))
 
 
-        accuracy = ((torch.sigmoid(outputs) > 0.5) == labels).float().mean()
+        accuracy = ((outputs > 0.5) == labels).float().mean()
 
         pbar.set_description(f"Loss: {round(loss.item(), 4)} " f"Accuracy: {round(accuracy.item() * 100, 4)}")
 
 
 def train():
+    s3 = boto3.client('s3',
+                      aws_access_key_id=os.environ["access_key_id"],
+                      aws_secret_access_key=os.environ["secret_access_key"],
+                      endpoint_url='https://s3-msk.tinkoff.ru')
+
+    s3.download_file('rnd-customer-service-platform-ml-data',
+                     str(os.environ["train_patch"]),
+                     str(os.environ["train_patch"]))
+
     device = torch.device("cuda:0")
     model = Unet().to(device)
     criterion = nn.BCEWithLogitsLoss()
@@ -50,10 +61,8 @@ def train():
     train_loader = get_train_data()
 
     num_epochs = 5
-    scaler = ManualLossScaler(init_scale=1024.0, dynamic=True)
+    scaler = ManualLossScaler(init_scale=1024.0, dynamic=False)
     for epoch in range(0, num_epochs):
         train_epoch(train_loader, model, criterion, optimizer, device=device, scaler=scaler)
 
 
-if __name__ == "__main__":
-    train()

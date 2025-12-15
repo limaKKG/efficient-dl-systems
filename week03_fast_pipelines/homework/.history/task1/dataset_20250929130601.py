@@ -56,7 +56,7 @@ class Carvana(Dataset):
 
 def get_train_data() -> torch.utils.data.DataLoader:
     train_dataset = Carvana(
-        root="/work/", transform=transforms.Compose([transforms.Resize((256, 256)), transforms.ToTensor()])
+        root=".", transform=transforms.Compose([transforms.Resize((256, 256)), transforms.ToTensor()])
     )
 
     train_loader = torch.utils.data.DataLoader(

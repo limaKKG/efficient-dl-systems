@@ -28,20 +28,21 @@ def train_epoch(
             loss.backward()
             optimizer.step()
         else:
-            scaled_loss = scaler.scale_loss(loss).backward()
-            found_inf = scaler._has_inf_or_nan(model)
-            if not found_inf:
+            loss = scaler.scale_loss(loss).backward()
+
+            if not scaler._has_inf_or_nan(model):
                 scaler.unscale_(optimizer)
                 optimizer.step()
-            scaler.update(found_inf)
+            scaler.update(scaler._has_inf_or_nan(model))
 
 
-        accuracy = ((torch.sigmoid(outputs) > 0.5) == labels).float().mean()
+        accuracy = ((outputs > 0.5) == labels).float().mean()
 
         pbar.set_description(f"Loss: {round(loss.item(), 4)} " f"Accuracy: {round(accuracy.item() * 100, 4)}")
 
 
 def train():
+
     device = torch.device("cuda:0")
     model = Unet().to(device)
     criterion = nn.BCEWithLogitsLoss()
@@ -50,10 +51,8 @@ def train():
     train_loader = get_train_data()
 
     num_epochs = 5
-    scaler = ManualLossScaler(init_scale=1024.0, dynamic=True)
+    scaler = ManualLossScaler(init_scale=1024.0, dynamic=False)
     for epoch in range(0, num_epochs):
         train_epoch(train_loader, model, criterion, optimizer, device=device, scaler=scaler)
 
 
-if __name__ == "__main__":
-    train()
